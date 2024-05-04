@@ -37,6 +37,26 @@ use std::pin::Pin;
 /// Error during decoding operations.
 pub struct DecoderError;
 
+/// The result of the encoding operation.
+///
+/// This is the result of [`Encoder::encode_all`] or [`EncodingBlock::encode`].
+pub struct BuffersDecoded {
+    headers: Vec<Header>,
+    stream: Box<[u8]>,
+}
+
+impl BuffersDecoded {
+    /// The data buffer of decoded headers.
+    pub fn headers(&self) -> &Vec<Header> {
+        &self.headers
+    }
+
+    /// The buffer of the stream data for the encoder.
+    pub fn stream(&self) -> &[u8] {
+        &self.stream
+    }
+}
+
 /// The result of a decode operation.
 ///
 /// Generally, this is function's output for [`Decoder::decode`].
@@ -44,9 +64,9 @@ pub struct DecoderError;
 /// When header data are decoded,
 pub enum DecoderOutput {
     /// The header block has been correctly decoded.
-    Done(Vec<Header>),
+    Done(BuffersDecoded),
 
-    /// The deocding stream is blocked.
+    /// The decoding stream is blocked.
     /// More data are needed in order to proceed with decoding operation.
     /// Generally, you need to feed the encoder via [`Decoder::feed`].
     BlockedStream,
@@ -181,6 +201,9 @@ impl InnerDecoder {
         let header_block_len = encoded_cursor.len();
         let mut cursor_after = encoded_cursor.as_ptr();
 
+        let mut buffer = vec![0; ls_qpack_sys::LSQPACK_LONGEST_SDTC as usize];
+        let mut sdtc_buffer_size = buffer.len();
+
         let result = unsafe {
             ls_qpack_sys::lsqpack_dec_header_in(
                 &mut this.decoder,
@@ -189,8 +212,8 @@ impl InnerDecoder {
                 header_block_len,
                 &mut cursor_after,
                 encoded_cursor_len,
-                std::ptr::null_mut(),
-                &mut 0,
+                buffer.as_mut_ptr(),
+                &mut sdtc_buffer_size,
             )
         };
 
@@ -200,7 +223,8 @@ impl InnerDecoder {
                 debug_assert!(!hblock_ctx.as_ref().is_error());
 
                 let hblock_ctx = unsafe { Pin::into_inner_unchecked(hblock_ctx) };
-                Ok(DecoderOutput::Done(hblock_ctx.decoded_headers()))
+
+                Ok(DecoderOutput::Done(BuffersDecoded { headers: hblock_ctx.decoded_headers(), stream: buffer}))
             }
 
             ls_qpack_sys::lsqpack_read_header_status_LQRHS_BLOCKED => {
@@ -258,7 +282,7 @@ impl InnerDecoder {
                 }
 
                 let hdbk = unsafe { Pin::into_inner_unchecked(hdbk) };
-                Some(Ok(DecoderOutput::Done(hdbk.decoded_headers())))
+                Some(Ok(DecoderOutput::Done(BuffersDecoded { headers: hdbk.decoded_headers(), stream: []})))
             }
 
             hash_map::Entry::Vacant(_) => None,
