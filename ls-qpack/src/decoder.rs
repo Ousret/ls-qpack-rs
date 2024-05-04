@@ -75,7 +75,7 @@ pub enum DecoderOutput {
 impl DecoderOutput {
     /// If the result is unblocked, it will return `Some(Vec<header>)`.
     /// Otherwise `None`.
-    pub fn take(self) -> Option<Vec<Header>> {
+    pub fn take(self) -> Option<BuffersDecoded> {
         match self {
             Self::Done(v) => Some(v),
             Self::BlockedStream => None,
@@ -224,7 +224,7 @@ impl InnerDecoder {
 
                 let hblock_ctx = unsafe { Pin::into_inner_unchecked(hblock_ctx) };
 
-                Ok(DecoderOutput::Done(BuffersDecoded { headers: hblock_ctx.decoded_headers(), stream: buffer}))
+                Ok(DecoderOutput::Done(BuffersDecoded { headers: hblock_ctx.decoded_headers(), stream: buffer.into()}))
             }
 
             ls_qpack_sys::lsqpack_read_header_status_LQRHS_BLOCKED => {
@@ -282,7 +282,7 @@ impl InnerDecoder {
                 }
 
                 let hdbk = unsafe { Pin::into_inner_unchecked(hdbk) };
-                Some(Ok(DecoderOutput::Done(BuffersDecoded { headers: hdbk.decoded_headers(), stream: []})))
+                Some(Ok(DecoderOutput::Done(BuffersDecoded { headers: hdbk.decoded_headers(), stream: Box::new([])})))
             }
 
             hash_map::Entry::Vacant(_) => None,

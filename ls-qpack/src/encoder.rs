@@ -431,7 +431,7 @@ impl InnerEncoder {
         }
     }
 
-    fn feed_decoder_data(self: Pin<&Self>, data: &[u8]) -> Result<(), EncoderError> {
+    fn feed_decoder_data(self: Pin<&mut Self>, data: &[u8]) -> Result<(), EncoderError> {
         let this = unsafe { self.get_unchecked_mut() };
 
         let result = unsafe {
