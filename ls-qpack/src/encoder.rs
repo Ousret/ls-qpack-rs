@@ -144,6 +144,14 @@ impl Encoder {
         EncodingBlock::new(self, stream_id, seqno)
     }
 
+    /// Feeds data from decoder's buffer stream.
+    pub fn feed<D>(&mut self, data: D) -> Result<(), EncoderError>
+        where
+            D: AsRef<[u8]>,
+    {
+        self.inner.as_mut().feed_decoder_data(data.as_ref())
+    }
+
     /// Return estimated compression ratio until this point.
     ///
     /// Compression ratio is defined as size of the output divided by the size of the
@@ -418,6 +426,20 @@ impl InnerEncoder {
             hdr_block.extend_from_slice(&this.hdr_buffer);
 
             Ok((hdr_block, std::mem::take(&mut this.enc_buffer)))
+        } else {
+            Err(EncoderError)
+        }
+    }
+
+    fn feed_decoder_data(self: Pin<&mut Self>, data: &[u8]) -> Result<(), EncoderError> {
+        let this = unsafe { self.get_unchecked_mut() };
+
+        let result = unsafe {
+            ls_qpack_sys::lsqpack_enc_decoder_in(&mut this.encoder, data.as_ptr(), data.len())
+        };
+
+        if result == 0 {
+            Ok(())
         } else {
             Err(EncoderError)
         }
