@@ -224,7 +224,8 @@ impl InnerDecoder {
 
                 let hblock_ctx = unsafe { Pin::into_inner_unchecked(hblock_ctx) };
 
-                Ok(DecoderOutput::Done(BuffersDecoded { headers: hblock_ctx.decoded_headers(), stream: buffer.into()}))
+                buffer.truncate(sdtc_buffer_size);
+                Ok(DecoderOutput::Done(BuffersDecoded { headers: hblock_ctx.decoded_headers(), stream: buffer.into_boxed_slice()}))
             }
 
             ls_qpack_sys::lsqpack_read_header_status_LQRHS_BLOCKED => {
