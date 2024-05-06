@@ -228,12 +228,10 @@ impl InnerDecoder {
                 Ok(DecoderOutput::Done(BuffersDecoded { headers: hblock_ctx.decoded_headers(), stream: buffer.into_boxed_slice()}))
             }
 
-            ls_qpack_sys::lsqpack_read_header_status_LQRHS_BLOCKED => {
+            ls_qpack_sys::lsqpack_read_header_status_LQRHS_BLOCKED | ls_qpack_sys::lsqpack_read_header_status_LQRHS_NEED => {
                 let offset = unsafe {
                     cursor_after.offset_from(hblock_ctx.as_ref().encoded_cursor().as_ptr())
                 };
-
-                debug_assert!(offset > 0);
 
                 hblock_ctx.as_mut().advance_cursor(offset as usize);
                 hblock_ctx.as_mut().set_blocked(true);
@@ -241,8 +239,6 @@ impl InnerDecoder {
 
                 Ok(DecoderOutput::BlockedStream)
             }
-
-            ls_qpack_sys::lsqpack_read_header_status_LQRHS_NEED => unimplemented!(),
 
             _ => Err(DecoderError),
         }
@@ -283,7 +279,7 @@ impl InnerDecoder {
                 }
 
                 let hdbk = unsafe { Pin::into_inner_unchecked(hdbk) };
-                Some(Ok(DecoderOutput::Done(BuffersDecoded { headers: hdbk.decoded_headers(), stream: Box::new([])})))
+                Some(Ok(DecoderOutput::Done(BuffersDecoded { headers: hdbk.decoded_headers(), stream: hdbk.stream_data().into_boxed_slice()})))
             }
 
             hash_map::Entry::Vacant(_) => None,
@@ -320,6 +316,7 @@ mod callbacks {
         header: ls_qpack_sys::lsxpack_header,
         blocked: bool,
         error: bool,
+        stream_data: Vec<u8>,
         decoded_headers: Vec<Header>,
         _marker: PhantomPinned,
     }
@@ -336,6 +333,7 @@ mod callbacks {
                 encoded_data,
                 encoded_data_offset: 0,
                 decoding_buffer: Vec::new(),
+                stream_data: Vec::new(),
                 header: Default::default(),
                 blocked: false,
                 error: false,
@@ -364,6 +362,11 @@ mod callbacks {
             this.blocked = blocked;
         }
 
+        pub(super) fn set_stream_data(self: Pin<&mut Self>, data: &Vec<u8>) {
+            let this = unsafe { self.get_unchecked_mut() };
+            this.stream_data = data.to_vec();
+        }
+
         pub(super) fn enable_error(self: Pin<&mut Self>) {
             let this = unsafe { self.get_unchecked_mut() };
             debug_assert!(!this.error);
@@ -378,8 +381,12 @@ mod callbacks {
             self.error
         }
 
-        pub(super) fn decoded_headers(self) -> Vec<Header> {
-            self.decoded_headers
+        pub(super) fn decoded_headers(&self) -> Vec<Header> {
+            self.decoded_headers.clone()
+        }
+
+        pub(super) fn stream_data(&self) -> Vec<u8> {
+            self.stream_data.clone()
         }
 
         unsafe fn from_void_ptr(ptr: *mut libc::c_void) -> Pin<&'static mut Self> {
@@ -435,19 +442,25 @@ mod callbacks {
         let encoded_cursor_len = encoded_cursor.len();
         let mut cursor_after = encoded_cursor.as_ptr();
 
+        let mut buffer = vec![0; ls_qpack_sys::LSQPACK_LONGEST_SDTC as usize];
+        let mut sdtc_buffer_size = buffer.len();
+
         let result = unsafe {
             ls_qpack_sys::lsqpack_dec_header_read(
                 hblock_ctx.decoder,
                 hblock_ctx.as_mut().as_mut_ptr() as *mut libc::c_void,
                 &mut cursor_after,
                 encoded_cursor_len,
-                std::ptr::null_mut(),
-                std::ptr::null_mut(),
+                buffer.as_mut_ptr(),
+                &mut sdtc_buffer_size,
             )
         };
 
         match result {
-            ls_qpack_sys::lsqpack_read_header_status_LQRHS_DONE => {}
+            ls_qpack_sys::lsqpack_read_header_status_LQRHS_DONE => {
+                buffer.truncate(sdtc_buffer_size);
+                hblock_ctx.as_mut().set_stream_data(&buffer);
+            }
 
             ls_qpack_sys::lsqpack_read_header_status_LQRHS_BLOCKED => {
                 let offset = unsafe {

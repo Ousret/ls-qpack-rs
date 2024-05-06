@@ -15,6 +15,7 @@ pub enum HeaderError {
 /// QPACK Header.
 ///
 /// A `Header` essentially is a pair composed by two strings. That is, a name and a value.
+#[derive(Clone)]
 pub struct Header {
     buffer: Box<[u8]>,
     name_offset: usize,
