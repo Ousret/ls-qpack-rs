@@ -11,5 +11,5 @@ readme = "../README.md"
 workspace = ".."
 
 [dependencies]
-libc = "0.2.146"
+libc = "0.2.159"
 ls-qpack-sys = { version = "0.1.4", path = "../ls-qpack-sys" }
