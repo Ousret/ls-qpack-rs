@@ -353,7 +353,7 @@ impl InnerEncoder {
     where
         H: TryIntoHeader,
     {
-        const BUFFER_SIZE: usize = 1024;
+        const BUFFER_SIZE: usize = 4096;
 
         let mut header = header.try_into_header().map_err(|_| EncoderError)?;
 
